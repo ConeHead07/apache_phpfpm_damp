@@ -1,0 +1,198 @@
+Skip to content
+Ways of the nix's
+Ways of the nix's
+stuff that matters
+DAMP – Docker, Apache, MariaDB & PHP-FPM
+
+Are you still using virtual machines like a sucker? here’s the complete guide to the future, it’s called containerization.
+
+I’ve been using chroot for years, not only for webpages with the php-fpm, but also for services like Postfix, Dovecot and Bind.
+
+My choice of OS on the host server is of course Debian but the container does not need such a heavy base. There is another distro called Alpine which is only a few Mb.
+
+Imagine the difference in a large scale containerization environment
+
+If you haven’t got docker yet
+# apt update 
+# apt install apt-transport-https ca-certificates curl gnupg2 software-properties-common
+# curl -fsSL https://download.docker.com/linux/debian/gpg | sudo apt-key add -
+# vim /etc/apt/sources.list
+Don’t forget to change the distribution name if you’re not running buster!
+
+   deb [arch=amd64] https://download.docker.com/linux/debian buster stable 
+# apt update && apt install docker-ce docker-compose
+Lets go ahead and create our DAMP server
+First we will create our “repository
+
+# mkdir -p /opt/docker/apache-php-mariadb
+# cd /opt/docker/apache-php-mariadb
+# mkdir apache php mariadb html
+Set up the environment variables
+
+# nvim .env
+PHP_VERSION=7.3
+MARIADB_VERSION=10.3
+APACHE_VERSION=2.4
+PHP_NAME=0-php
+MARIADB_NAME=db
+APACHE_NAME=web
+ADMINER_NAME=adminer
+NET_BACKEND=backend
+NET_FRONTEND=frontend
+DB_ROOT_PASSWORD=abc123
+DB_NAME=wp
+DB_USERNAME=user
+DB_PASSWORD=123abc
+And the compose file
+
+# nvim docker-compose.yml
+version: "3.2"
+services:
+  php:
+    build: 
+      context: './php/'
+      args:
+       PHP_VERSION: ${PHP_VERSION}
+    networks:
+      - backend
+    volumes:
+      - ./html/:/var/www/html/
+    container_name: "${PHP_NAME}"
+  apache:
+    build:
+      context: './apache/'
+      args:
+       APACHE_VERSION: ${APACHE_VERSION}
+    depends_on:
+      - php
+      - mariadb
+    networks:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./html/:/var/www/html/
+    container_name: "${APACHE_NAME}"
+  mariadb:
+    image: mariadb:${MARIADB_VERSION:-latest}
+    restart: always
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./mariadb:/var/lib/mysql
+    networks:
+      - backend
+    environment:
+      MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASSWORD}"
+      MYSQL_DATABASE: "${DB_NAME}"
+      MYSQL_USER: "${DB_USERNAME}"
+      MYSQL_PASSWORD: "${DB_PASSWORD}"
+    container_name: "${MARIADB_NAME}"
+  adminer:
+    image: adminer
+    ports:
+      - 8080:8080
+    networks:
+      - backend
+    restart: always
+    container_name: "${ADMINER_NAME}"
+networks:
+  backend:
+  frontend:
+Create a vhost
+
+# nvim apache/demo.apache.conf
+ServerName localhost
+LoadModule deflate_module /usr/local/apache2/modules/mod_deflate.so
+LoadModule proxy_module /usr/local/apache2/modules/mod_proxy.so
+LoadModule proxy_fcgi_module /usr/local/apache2/modules/mod_proxy_fcgi.so
+<VirtualHost *:80>
+  # Proxy .php requests to port 9000 of the php-fpm container
+  ProxyPassMatch ^/(.*\.php(/.*)?)$ fcgi://php:9000/var/www/html/$1
+  DocumentRoot /var/www/html/
+  <Directory /var/www/html/>
+    DirectoryIndex index.php
+    Options Indexes FollowSymLinks
+    AllowOverride All
+    Require all granted
+  </Directory>
+  # Send apache logs to stdout and stderr
+  CustomLog /proc/self/fd/1 common
+  ErrorLog /proc/self/fd/2
+</VirtualHost>
+nvim apache/Dockerfile
+ARG APACHE_VERSION=""
+FROM httpd:${APACHE_VERSION:+${APACHE_VERSION}-}alpine
+RUN apk update; \
+    apk upgrade;
+RUN apk add \
+  bash \
+  apache2 \
+  php7-apache2 \
+  curl \
+  ca-certificates \
+  openssl \
+  git \
+  php7 \
+  php7-phar \
+  php7-json \
+  php7-iconv \
+  php7-openssl \
+  tzdata \
+  openntpd \
+  php7-ftp \
+  php7-xdebug \
+  php7-mcrypt \
+  php7-mbstring \
+  php7-soap \
+  php7-gmp \
+  php7-pdo_odbc \
+  php7-dom \
+  php7-pdo \
+  php7-zip \
+  php7-mysqli \
+  php7-sqlite3 \
+  php7-bcmath \
+  php7-gd \
+  php7-odbc \
+  php7-pdo_mysql \
+  php7-pdo_sqlite \
+  php7-gettext \
+  php7-xmlreader \
+  php7-xmlwriter \
+  php7-tokenizer \
+  php7-xmlrpc \
+  php7-bz2 \
+  php7-pdo_dblib \
+  php7-curl \
+  php7-ctype \
+  php7-session \
+  php7-exif;
+RUN sed -i "s/#LoadModule\ rewrite_module/LoadModule\ rewrite_module/" /usr/local/apache2/conf/httpd.conf;
+COPY .bashrc /root/.bashrc
+# Copy apache vhost file to proxy php requests to php-fpm container
+COPY demo.apache.conf /usr/local/apache2/conf/demo.apache.conf
+RUN echo "Include /usr/local/apache2/conf/demo.apache.conf" \
+    >> /usr/local/apache2/conf/httpd.conf
+ #nvim php/Dockerfile
+ARG PHP_VERSION=""
+FROM php:${PHP_VERSION:+${PHP_VERSION}-}fpm-alpine
+RUN apk update; \
+    apk upgrade;
+#RUN docker-php-ext-install mysqli
+#RUN docker-php-ext-install pdo pdo_mysql
+Categorized as Uncategorized
+Post navigation
+Previous post
+
+Preprocessing with mod_rewrite and PHP
+
+Next post
+
+LXC – Linux Containers
+
+stuff that matters
+Ways of the nix's
+Proudly powered by .
+
